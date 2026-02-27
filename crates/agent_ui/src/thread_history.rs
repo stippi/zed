@@ -9,7 +9,7 @@ use gpui::{
     App, Entity, EventEmitter, FocusHandle, Focusable, ScrollStrategy, Task,
     UniformListScrollHandle, WeakEntity, Window, uniform_list,
 };
-use std::{fmt::Display, ops::Range, rc::Rc};
+use std::{fmt::Display, ops::Range, path::PathBuf, rc::Rc};
 use text::Bias;
 use time::{OffsetDateTime, UtcOffset};
 use ui::{
@@ -38,6 +38,7 @@ pub struct ThreadHistory {
     visible_items: Vec<ListItemType>,
     local_timezone: UtcOffset,
     confirming_delete_history: bool,
+    cwd: Option<PathBuf>,
     _visible_items_task: Task<()>,
     _refresh_task: Task<()>,
     _watch_task: Option<Task<()>>,
@@ -111,6 +112,7 @@ impl ThreadHistory {
             .unwrap(),
             search_query: SharedString::default(),
             confirming_delete_history: false,
+            cwd: None,
             _subscriptions: vec![search_editor_subscription],
             _visible_items_task: Task::ready(()),
             _refresh_task: Task::ready(()),
@@ -118,6 +120,15 @@ impl ThreadHistory {
         };
         this.set_session_list(session_list, cx);
         this
+    }
+
+    /// Set the working directory to use when filtering sessions.
+    pub fn set_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.cwd != cwd {
+            self.cwd = cwd;
+            // Re-fetch sessions with the new filter
+            self.refresh_sessions(true, false, cx);
+        }
     }
 
     fn update_visible_items(&mut self, preserve_selected_item: bool, cx: &mut Context<Self>) {
@@ -272,6 +283,8 @@ impl ThreadHistory {
             return;
         };
 
+        let cwd = self.cwd.clone();
+
         // If a new refresh arrives while pagination is in progress, the previous
         // `_refresh_task` is cancelled. This is intentional (latest refresh wins),
         // but means sessions may be in a partial state until the new refresh completes.
@@ -281,6 +294,7 @@ impl ThreadHistory {
 
             loop {
                 let request = AgentSessionListRequest {
+                    cwd: cwd.clone(),
                     cursor: cursor.clone(),
                     ..Default::default()
                 };
